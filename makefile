@@ -15,4 +15,4 @@ socket_client.o: socket_client.c
 
 .PHONY: clean
 clean:
-	rm -f *.o *.exe
+	rm -f $(OBJ) $(EXECUTABLE)
