@@ -8,10 +8,10 @@ $(EXECUTABLE): $(OBJ)
 	gcc $^ -o $@ $(LIBS)
 
 socket_server.o: socket_server.c
-	gcc -c $^ $(LIBS)
+	gcc -c $^
 
 socket_client.o: socket_client.c
-	gcc -c $^ $(LIBS)
+	gcc -c $^
 
 .PHONY: clean
 clean:
