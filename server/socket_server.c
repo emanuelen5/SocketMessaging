@@ -1,9 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #if defined(WIN32) || defined(__WIN32)
   #include <winsock.h>
+  #include <windows.h>
+  #define delay(ms) Sleep(ms)
   #pragma comment(lib, "ws2_32.lib") //Winsock Library
 #else
   #warning "This is currently only for Windows"
@@ -16,13 +19,57 @@
     closesocket(s); \
     WSACleanup(); \
     return 1;
+#define STRLEN 100
+#define MIN(a, b) ((a)<(b)?(a):(b))
+
+SOCKET sockAccept = INVALID_SOCKET;
+pthread_mutex_t lock_sockAccept;
+
+void *receiveRoutine(void *threadData) {
+  char message[STRLEN+1];
+  int recvLen;
+  PRINT("In recv routine!");
+
+  while (1) {
+    PRINT("Recv: Acquiring lock...\n");
+    pthread_mutex_lock(&lock_sockAccept);
+    PRINT("Recv: Got the lock, waiting for data...\n");
+    recvLen = recv(sockAccept, message, STRLEN, 0);
+    PRINT("Recv: got the data.\n");
+    pthread_mutex_unlock(&lock_sockAccept);
+    if (recvLen > 0) {
+      message[MIN(recvLen, STRLEN)] = '\0';
+      PRINT("\nMessage received: '%s'", message); 
+    }
+    delay(100);
+  }
+
+  pthread_exit(NULL);
+}
+
+void *sendRoutine(void *threadData) {
+  char message[STRLEN+1];
+  while (1) {
+    PRINT("Send: Waiting for user input...\n");
+    if (fgets(message, sizeof(message), stdin)) {
+      PRINT("Send: Got user input. Acquiring lock...\n");
+      pthread_mutex_lock(&lock_sockAccept);
+      PRINT("Send: Got lock, sending data.\n");
+      send(sockAccept, message, strlen(message), 0);
+      pthread_mutex_unlock(&lock_sockAccept);
+    }
+    delay(100);
+  }
+  return 0;
+}
 
 int main(int argc, char *argv[]) {
   WSADATA wsaData;
-  SOCKET sockListen = INVALID_SOCKET, sockAccept = INVALID_SOCKET;
+  SOCKET sockListen = INVALID_SOCKET;
   struct sockaddr_in server, client;
   int c;
-  char *message;
+  pthread_t receiveThread;
+  pthread_mutex_init(&lock_sockAccept, NULL);
 
   PRINT("Initialising Winsock... ");
   if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -42,7 +89,7 @@ int main(int argc, char *argv[]) {
   //Prepare the sockaddr_in structure
   server.sin_family      = AF_INET;
   server.sin_addr.s_addr = INADDR_ANY;
-  server.sin_port        = htons(80);
+  server.sin_port        = htons(8888);
 
   //Bind
   if (bind(sockListen, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) {
@@ -64,17 +111,15 @@ int main(int argc, char *argv[]) {
   }
   PRINT("Accepted\n");
 
-  //Reply to client
-  message = "1. Hello Client, I have received your connection";
-  send(sockAccept, message, strlen(message), 0);
-  message = "2. Still there... Ehm.";
-  send(sockAccept, message, strlen(message), 0);
-  message = "3. Gotta go now!";
-  send(sockAccept, message, strlen(message), 0);
+  pthread_create(&receiveThread, NULL, receiveRoutine, NULL);
+  sendRoutine(NULL);
 
   closesocket(sockAccept);
   closesocket(sockListen);
   WSACleanup();
+
+  pthread_mutex_destroy(&lock_sockAccept);
+  pthread_exit(NULL);
 
   return 0;
 }

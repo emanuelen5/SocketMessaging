@@ -1,5 +1,5 @@
 EXECUTABLE=run.exe
-LIBS=-lws2_32
+LIBS=-lws2_32 -lpthread
 CFLAGS=-Wall
 SRCS=$(wildcard *.c)
 OBJ=$(SRCS:.c=.o)
