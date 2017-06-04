@@ -1,17 +1,17 @@
 EXECUTABLE=run.exe
-OBJ=socket_server.o
 LIBS=-lws2_32
+CFLAGS=-Wall
+SRCS=$(wildcard *.c)
+OBJ=$(SRCS:.c=.o)
+CC=gcc
 
 all: $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJ)
-	gcc $^ -o $@ $(LIBS)
+	$(CC) $^ -o $@ $(LIBS)
 
-socket_server.o: socket_server.c
-	gcc -c $^
-
-socket_client.o: socket_client.c
-	gcc -c $^
+%.o: %.c
+	$(CC) -c $< -o $@ $(CFLAGS) 
 
 .PHONY: clean
 clean:
