@@ -55,6 +55,7 @@ void *receiveRoutine(void *threadData) {
       PRINT("Recv: Got the lock, waiting for data...\n");
       recvLen = recv(sockAccept, message, STRLEN, 0);
       if (recvLen == SOCKET_ERROR) {
+        pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
       PRINT("Recv: got the data.\n");
@@ -83,8 +84,10 @@ void *sendRoutine(void *threadData) {
       pthread_mutex_lock(&lock_sockAccept);
       PRINT("Send: Got lock, sending data.\n");
       status = send(sockAccept, message, strlen(message), 0);
-      if (status == SOCKET_ERROR)
+      if (status == SOCKET_ERROR) {
+        PRINT("Other user has closed client. Closing...")
         break;
+      }
       pthread_mutex_unlock(&lock_sockAccept);
       PRINT("Send: Released lock.\n");
     }
