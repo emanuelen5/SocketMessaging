@@ -44,7 +44,6 @@ int pollSelect(SOCKET sock) {
 void *receiveRoutine(void *threadData) {
   char message[STRLEN+1];
   int recvLen;
-  PRINT("In recv routine!");
 
   while (1) {
     recvLen = pollSelect(sockAccept);
@@ -52,18 +51,17 @@ void *receiveRoutine(void *threadData) {
       break;
     } else if (recvLen > 0) {
       pthread_mutex_lock(&lock_sockAccept);
-      PRINT("Recv: Got the lock, waiting for data...\n");
       recvLen = recv(sockAccept, message, STRLEN, 0);
       if (recvLen == SOCKET_ERROR) {
         pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
-      PRINT("Recv: got the data.\n");
       pthread_mutex_unlock(&lock_sockAccept);
-      PRINT("Recv: Released lock.\n");
       if (recvLen > 0) {
         message[MIN(recvLen, STRLEN)] = '\0';
-        PRINT("\nMessage received: '%s'", message); 
+        PRINT("Other: %s", message);
+        if (recvLen == STRLEN)
+          PRINT("%s\n", message);
       }
     } else {
       delay(100);
@@ -80,18 +78,14 @@ void *sendRoutine(void *threadData) {
   char message[STRLEN+1];
   int status;
   while (1) {
-    PRINT("Send: Waiting for user input...\n");
     if (fgets(message, sizeof(message), stdin)) {
-      PRINT("Send: Got user input. Acquiring lock...\n");
       pthread_mutex_lock(&lock_sockAccept);
-      PRINT("Send: Got lock, sending data.\n");
       status = send(sockAccept, message, strlen(message), 0);
       if (status == SOCKET_ERROR) {
         pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
       pthread_mutex_unlock(&lock_sockAccept);
-      PRINT("Send: Released lock.\n");
     }
   }
   return 0;
