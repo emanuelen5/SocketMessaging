@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
   int c;
   char *message;
 
-  PRINT("\nInitialising Winsock...");
+  PRINT("Initialising Winsock... ");
   if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
     PRINT("WSAStartup failed. Error Code : %d", WSAGetLastError());
     WSACleanup();
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
   PRINT("Initialised.\n");
 
   //Create a socket
-  if((sockListen = socket(AF_INET, SOCK_STREAM, 0 )) == INVALID_SOCKET) {
+  if((sockListen = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {
     PRINT("Could not create socket : %d", WSAGetLastError());
     FAIL_SOCKET(sockListen);
   }
@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
   //Prepare the sockaddr_in structure
   server.sin_family      = AF_INET;
   server.sin_addr.s_addr = INADDR_ANY;
-  server.sin_port        = htons(8888);
+  server.sin_port        = htons(80);
 
   //Bind
   if (bind(sockListen, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) {
@@ -55,20 +55,22 @@ int main(int argc, char *argv[]) {
   listen(sockListen, 3);
 
   //Accept incoming connection
-  PRINT("Waiting for incoming connections...\n");
+  PRINT("Waiting for incoming connections... ");
   c = sizeof(struct sockaddr_in);
   sockAccept = accept(sockListen, (struct sockaddr*)&client, &c);
   if (sockAccept == INVALID_SOCKET) {
-    PRINT("accept failed with error code : %d", WSAGetLastError());
+    PRINT("\nAccept failed with error code : %d", WSAGetLastError());
     FAIL_SOCKET(sockListen);
   }
-  PRINT("Connection accepted\n");
+  PRINT("Accepted\n");
 
   //Reply to client
-  message = "Hello Client, I have received your connection. But I have to go now, bye\n";
+  message = "1. Hello Client, I have received your connection";
   send(sockAccept, message, strlen(message), 0);
-
-  getchar();
+  message = "2. Still there... Ehm.";
+  send(sockAccept, message, strlen(message), 0);
+  message = "3. Gotta go now!";
+  send(sockAccept, message, strlen(message), 0);
 
   closesocket(sockAccept);
   closesocket(sockListen);
