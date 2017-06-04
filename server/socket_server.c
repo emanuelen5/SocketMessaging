@@ -70,6 +70,8 @@ void *receiveRoutine(void *threadData) {
     }
   }
 
+  PRINT("Other user has closed client. Exiting...")
+  exit(-1);
   pthread_exit(NULL);
   return 0;
 }
@@ -85,7 +87,7 @@ void *sendRoutine(void *threadData) {
       PRINT("Send: Got lock, sending data.\n");
       status = send(sockAccept, message, strlen(message), 0);
       if (status == SOCKET_ERROR) {
-        PRINT("Other user has closed client. Closing...")
+        pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
       pthread_mutex_unlock(&lock_sockAccept);
