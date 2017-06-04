@@ -25,40 +25,69 @@
 SOCKET sockOpen = INVALID_SOCKET;
 pthread_mutex_t lock_sockOpen;
 
+int pollSelect(SOCKET sock) {
+  int selectStatus;
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(sock, &fds);
+
+  struct timeval tv;
+  tv.tv_sec = 0;
+  tv.tv_usec = 0;
+
+  pthread_mutex_lock(&lock_sockOpen);
+  selectStatus = select(sock, &fds, 0, 0, &tv);
+  pthread_mutex_unlock(&lock_sockOpen);
+  return selectStatus;
+}
+
 void *receiveRoutine(void *threadData) {
   char message[STRLEN+1];
   int recvLen;
   PRINT("In recv routine!");
 
   while (1) {
-    PRINT("Recv: Acquiring lock...\n");
-    pthread_mutex_lock(&lock_sockOpen);
-    PRINT("Recv: Got the lock, waiting for data...\n");
-    recvLen = recv(sockOpen, message, STRLEN, 0);
-    PRINT("Recv: got the data.\n");
-    pthread_mutex_unlock(&lock_sockOpen);
-    if (recvLen > 0) {
-      message[MIN(recvLen, STRLEN)] = '\0';
-      PRINT("\nMessage received: '%s'", message); 
+    recvLen = pollSelect(sockOpen);
+    if (recvLen == SOCKET_ERROR) {
+      break;
+    } else if (recvLen > 0) {
+      pthread_mutex_lock(&lock_sockOpen);
+      PRINT("Recv: Got the lock, waiting for data...\n");
+      recvLen = recv(sockOpen, message, STRLEN, 0);
+      if (recvLen == SOCKET_ERROR) {
+        break;
+      }
+      PRINT("Recv: got the data.\n");
+      pthread_mutex_unlock(&lock_sockOpen);
+      PRINT("Recv: Released lock.\n");
+      if (recvLen > 0) {
+        message[MIN(recvLen, STRLEN)] = '\0';
+        PRINT("\nMessage received: '%s'", message); 
+      }
+    } else {
+      delay(100);
     }
-    delay(100);
   }
 
   pthread_exit(NULL);
+  return 0;
 }
 
 void *sendRoutine(void *threadData) {
   char message[STRLEN+1];
+  int status;
   while (1) {
     PRINT("Send: Waiting for user input...\n");
     if (fgets(message, sizeof(message), stdin)) {
       PRINT("Send: Got user input. Acquiring lock...\n");
       pthread_mutex_lock(&lock_sockOpen);
       PRINT("Send: Got lock, sending data.\n");
-      send(sockOpen, message, strlen(message), 0);
+      status = send(sockOpen, message, strlen(message), 0);
+      if (status == SOCKET_ERROR)
+        break;
       pthread_mutex_unlock(&lock_sockOpen);
+      PRINT("Send: Released lock.\n");
     }
-    delay(100);
   }
   return 0;
 }

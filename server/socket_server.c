@@ -18,12 +18,28 @@
 #define FAIL_SOCKET(s) \
     closesocket(s); \
     WSACleanup(); \
-    return 1;
+    return SOCKET_ERROR;
 #define STRLEN 100
 #define MIN(a, b) ((a)<(b)?(a):(b))
 
 SOCKET sockAccept = INVALID_SOCKET;
 pthread_mutex_t lock_sockAccept;
+
+int pollSelect(SOCKET sock) {
+  int selectStatus;
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(sock, &fds);
+
+  struct timeval tv;
+  tv.tv_sec = 0;
+  tv.tv_usec = 0;
+
+  pthread_mutex_lock(&lock_sockAccept);
+  selectStatus = select(sock, &fds, 0, 0, &tv);
+  pthread_mutex_unlock(&lock_sockAccept);
+  return selectStatus;
+}
 
 void *receiveRoutine(void *threadData) {
   char message[STRLEN+1];
@@ -31,34 +47,47 @@ void *receiveRoutine(void *threadData) {
   PRINT("In recv routine!");
 
   while (1) {
-    PRINT("Recv: Acquiring lock...\n");
-    pthread_mutex_lock(&lock_sockAccept);
-    PRINT("Recv: Got the lock, waiting for data...\n");
-    recvLen = recv(sockAccept, message, STRLEN, 0);
-    PRINT("Recv: got the data.\n");
-    pthread_mutex_unlock(&lock_sockAccept);
-    if (recvLen > 0) {
-      message[MIN(recvLen, STRLEN)] = '\0';
-      PRINT("\nMessage received: '%s'", message); 
+    recvLen = pollSelect(sockAccept);
+    if (recvLen == SOCKET_ERROR) {
+      break;
+    } else if (recvLen > 0) {
+      pthread_mutex_lock(&lock_sockAccept);
+      PRINT("Recv: Got the lock, waiting for data...\n");
+      recvLen = recv(sockAccept, message, STRLEN, 0);
+      if (recvLen == SOCKET_ERROR) {
+        break;
+      }
+      PRINT("Recv: got the data.\n");
+      pthread_mutex_unlock(&lock_sockAccept);
+      PRINT("Recv: Released lock.\n");
+      if (recvLen > 0) {
+        message[MIN(recvLen, STRLEN)] = '\0';
+        PRINT("\nMessage received: '%s'", message); 
+      }
+    } else {
+      delay(100);
     }
-    delay(100);
   }
 
   pthread_exit(NULL);
+  return 0;
 }
 
 void *sendRoutine(void *threadData) {
   char message[STRLEN+1];
+  int status;
   while (1) {
     PRINT("Send: Waiting for user input...\n");
     if (fgets(message, sizeof(message), stdin)) {
       PRINT("Send: Got user input. Acquiring lock...\n");
       pthread_mutex_lock(&lock_sockAccept);
       PRINT("Send: Got lock, sending data.\n");
-      send(sockAccept, message, strlen(message), 0);
+      status = send(sockAccept, message, strlen(message), 0);
+      if (status == SOCKET_ERROR)
+        break;
       pthread_mutex_unlock(&lock_sockAccept);
+      PRINT("Send: Released lock.\n");
     }
-    delay(100);
   }
   return 0;
 }
@@ -71,13 +100,15 @@ int main(int argc, char *argv[]) {
   pthread_t receiveThread;
   pthread_mutex_init(&lock_sockAccept, NULL);
 
+  PRINT("Socket error: %d\n", SOCKET_ERROR);
+
   PRINT("Initialising Winsock... ");
   if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
     PRINT("WSAStartup failed. Error Code : %d", WSAGetLastError());
     WSACleanup();
     return 1;
   }
-  PRINT("Initialised.\n");
+  PRINT("initialised.\n");
 
   //Create a socket
   if((sockListen = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {

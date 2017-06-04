@@ -4,6 +4,7 @@ CFLAGS=-Wall
 SRCS=$(wildcard *.c)
 OBJ=$(SRCS:.c=.o)
 CC=gcc
+.PHONY: all clean
 
 all: $(EXECUTABLE)
 
@@ -13,6 +14,5 @@ $(EXECUTABLE): $(OBJ)
 %.o: %.c
 	$(CC) -c $< -o $@ $(CFLAGS) 
 
-.PHONY: clean
 clean:
 	rm -f $(OBJ) $(EXECUTABLE)
