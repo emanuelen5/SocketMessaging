@@ -4,21 +4,29 @@
 #include <pthread.h>
 
 #if defined(WIN32) || defined(__WIN32)
+  #define WINDOWS 1
   #include <winsock.h>
   #include <windows.h>
-  #define delay(ms) Sleep(ms)
+  #define socket SOCKET
+  #define FAIL_SOCKET(s) \
+      closesocket(s); \
+      WSACleanup(); \
+      return 1;
+  #define errno WSAGetLastError()
   #pragma comment(lib, "ws2_32.lib") //Winsock Library
 #else
-  #warning "This is currently only for Windows"
+  #define FAIL_SOCKET(s) \
+      close(s); \
+      return 1;
+  #define SOCKET int
+  #define INVALID_SOCKET (-1)
+  #include <unistd.h>
   #include <sys/socket.h>
-  #include <sys/un.h>
+  #include <arpa/inet.h>
+  #include <errno.h>
 #endif
 
 #define PRINT(...) printf(__VA_ARGS__); fflush(stdout);
-#define FAIL_SOCKET(s) \
-    closesocket(s); \
-    WSACleanup(); \
-    return SOCKET_ERROR;
 #define STRLEN 100
 #define MIN(a, b) ((a)<(b)?(a):(b))
 
@@ -45,26 +53,35 @@ void *receiveRoutine(void *threadData) {
   char message[STRLEN+1];
   int recvLen;
 
+  PRINT("In receive routine\n");
   while (1) {
     recvLen = pollSelect(sockAccept);
-    if (recvLen == SOCKET_ERROR) {
+    if (recvLen < 0) {
       break;
     } else if (recvLen > 0) {
+      PRINT("Recv: Got data waiting, getting lock for retrieving...\n");
       pthread_mutex_lock(&lock_sockAccept);
+      PRINT("Recv: got lock, retrieving data...\n");
       recvLen = recv(sockAccept, message, STRLEN, 0);
-      if (recvLen == SOCKET_ERROR) {
+      if (recvLen < 0) {
+        PRINT("Recv: Error retrieving data.\n");
         pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
       pthread_mutex_unlock(&lock_sockAccept);
       if (recvLen > 0) {
+        PRINT("Recv: Successfully got data. Printing...\n");
         message[MIN(recvLen, STRLEN)] = '\0';
         PRINT("Other: %s", message);
         if (recvLen == STRLEN)
-          PRINT("%s\n", message);
+          PRINT("\n");
       }
     } else {
-      delay(100);
+      #if WINDOWS
+        Sleep(100);
+      #else
+        usleep(100*1000);
+      #endif
     }
   }
 
@@ -77,43 +94,50 @@ void *receiveRoutine(void *threadData) {
 void *sendRoutine(void *threadData) {
   char message[STRLEN+1];
   int status;
+  PRINT("In send routine\n");
   while (1) {
+    PRINT("Waiting for keyboard input...\n");
     if (fgets(message, sizeof(message), stdin)) {
+      PRINT("got input, getting lock...\n");
       pthread_mutex_lock(&lock_sockAccept);
+      PRINT("got lock, sending data.\n");
       status = send(sockAccept, message, strlen(message), 0);
-      if (status == SOCKET_ERROR) {
+      if (status < 0) {
+        PRINT("Failed to send data, closing.\n");
         pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
       pthread_mutex_unlock(&lock_sockAccept);
     }
   }
+  PRINT("Other user has closed client. Exiting...")
   return 0;
 }
 
 int main(int argc, char *argv[]) {
-  WSADATA wsaData;
   SOCKET sockListen = INVALID_SOCKET;
   struct sockaddr_in server, client;
-  int c;
+  int c, option =1;
   pthread_t receiveThread;
   pthread_mutex_init(&lock_sockAccept, NULL);
 
-  PRINT("Socket error: %d\n", SOCKET_ERROR);
-
-  PRINT("Initialising Winsock... ");
-  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-    PRINT("WSAStartup failed. Error Code : %d", WSAGetLastError());
-    WSACleanup();
-    return 1;
-  }
-  PRINT("initialised.\n");
+  #if WINDOWS
+    PRINT("Initialising Winsock... ");
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+      PRINT("WSAStartup failed. Error Code : %d", errno;
+      WSACleanup();
+      return 1;
+    }
+    PRINT("initialised.\n");
+  #endif
 
   //Create a socket
-  if((sockListen = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {
-    PRINT("Could not create socket : %d", WSAGetLastError());
+  if((sockListen = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    PRINT("Could not create socket : %d", errno);
     FAIL_SOCKET(sockListen);
   }
+  setsockopt(sockListen, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
   PRINT("Socket created.\n");
 
   //Prepare the sockaddr_in structure
@@ -122,8 +146,8 @@ int main(int argc, char *argv[]) {
   server.sin_port        = htons(8888);
 
   //Bind
-  if (bind(sockListen, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) {
-    PRINT("Bind failed with error code : %d", WSAGetLastError());
+  if (bind(sockListen, (struct sockaddr*)&server, sizeof(server)) < 0) {
+    PRINT("Bind failed with error code : %d", errno);
     FAIL_SOCKET(sockListen);
   }
   PRINT("Bind done\n");
@@ -134,22 +158,28 @@ int main(int argc, char *argv[]) {
   //Accept incoming connection
   PRINT("Waiting for incoming connections... ");
   c = sizeof(struct sockaddr_in);
-  sockAccept = accept(sockListen, (struct sockaddr*)&client, &c);
-  if (sockAccept == INVALID_SOCKET) {
-    PRINT("\nAccept failed with error code : %d", WSAGetLastError());
+  sockAccept = accept(sockListen, (struct sockaddr*)&client, (socklen_t *)&c);
+  if (sockAccept < 0) {
+    PRINT("\nAccept failed with error code : %d", errno);
     FAIL_SOCKET(sockListen);
   }
-  PRINT("Accepted\n");
+  PRINT("accepted\n");
 
   pthread_create(&receiveThread, NULL, receiveRoutine, NULL);
+  PRINT("Moving to send routine\n");
   sendRoutine(NULL);
+  PRINT("Finished send routine, closing up.\n");
 
-  closesocket(sockAccept);
-  closesocket(sockListen);
-  WSACleanup();
+  #if WINDOWS
+    closesocket(sockAccept);
+    closesocket(sockListen);
+    WSACleanup();
+  #else
+    close(sockAccept);
+    close(sockListen);
+  #endif
 
   pthread_mutex_destroy(&lock_sockAccept);
   pthread_exit(NULL);
-
   return 0;
 }
