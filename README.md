@@ -1,19 +1,18 @@
 # SocketMessaging
-Message passing with TCP socket
+A simple client/server solution for message passing with TCP socket over a local network
 
 ## Usage
-Run the following three commands to run the program:
-1. `make`: Compile both the client and server code. 
-2. `./server/run.exe`: Start the server
-3. `./client/run.exe`: Start the client
-Type something in either the client or server program and press enter (might depend on how the terminal is set up) to send it to the other.
+1. Run `make` in the main directory to compile both the server and client programs
+2. Start the server and then the client by running the programs `run` in the server and client folders respectively.
+3. Type something in either the client or server program and press enter (might depend on how the terminal is set up) to send it to the other.
+
+Note: If you're on Windows, the executables will be called `run.exe` instead.
 
 ## Possible customizations
-* Change the IP address in the file `client/socket_client.c` to match the host IP address. 
+* Change the IP address in the file `client/socket_client.c` to match the host IP address. This way, you can have the host and client on two different computers. Most likely, this will only work on a local network since firewalls will otherwise block the port.
 
 ## Limitations
-* Currently only compiles for Windows
-* Messages larger than the buffer will be split
+* Messages larger than the buffer will be split and look like several messages
 
 ## Notes
 * Pthreads are used for simultaneously receiving and sending messages
