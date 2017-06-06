@@ -57,24 +57,19 @@ void *receiveRoutine(void *threadData) {
   char message[STRLEN+1];
   int recvLen;
 
-  PRINT("In receive routine\n");
   while (1) {
     recvLen = pollSelect(sockOpen);
     if (recvLen < 0) {
       break;
     } else if (recvLen > 0) {
-      PRINT("Recv: Got data waiting, getting lock for retrieving...\n");
       pthread_mutex_lock(&lock_sockOpen);
-      PRINT("Recv: got lock, retrieving data...\n");
       recvLen = recv(sockOpen, message, STRLEN, 0);
       if (recvLen <= 0) {
-        PRINT("Recv: Error retrieving data.\n");
         pthread_mutex_unlock(&lock_sockOpen);
         break;
       }
       pthread_mutex_unlock(&lock_sockOpen);
       if (recvLen > 0) {
-        PRINT("Recv: Successfully got data. Printing...\n");
         message[MIN(recvLen, STRLEN)] = '\0';
         PRINT("Other: %s", message);
         if (recvLen == STRLEN)
@@ -85,7 +80,7 @@ void *receiveRoutine(void *threadData) {
     }
   }
 
-  PRINT("Other user has closed client. Exiting...")
+  PRINT("Other user has closed client. Exiting...\n")
   exit(-1);
   pthread_exit(NULL);
   return 0;
@@ -94,23 +89,19 @@ void *receiveRoutine(void *threadData) {
 void *sendRoutine(void *threadData) {
   char message[STRLEN+1];
   int status;
-  PRINT("In send routine\n");
+
   while (1) {
-    PRINT("Waiting for keyboard input...\n");
     if (fgets(message, sizeof(message), stdin)) {
-      PRINT("got input, getting lock...\n");
       pthread_mutex_lock(&lock_sockOpen);
-      PRINT("got lock, sending data.\n");
       status = send(sockOpen, message, strlen(message), 0);
       if (status < 0) {
-        PRINT("Failed to send data, closing.\n");
         pthread_mutex_unlock(&lock_sockOpen);
         break;
       }
       pthread_mutex_unlock(&lock_sockOpen);
     }
   }
-  PRINT("Other user has closed client. Exiting...")
+  PRINT("Other user has closed client. Exiting...\n")
   return 0;
 }
 
@@ -155,9 +146,7 @@ int main(int argc, char *argv[]) {
   PRINT("accepted.\n");
 
   pthread_create(&receiveThread, NULL, receiveRoutine, NULL);
-  PRINT("Moving to send routine\n");
   sendRoutine(NULL);
-  PRINT("Finished send routine, closing up.\n");
 
   #if WINDOWS
     closesocket(sockOpen);
