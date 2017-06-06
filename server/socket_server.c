@@ -1,24 +1,35 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
 
 #if defined(WIN32) || defined(__WIN32)
+  #define WINDOWS 1
+  #define delay_ms(ms) Sleep(ms)
+  #define FAIL_SOCKET(s) \
+      closesocket(s); \
+      WSACleanup(); \
+      return 1;
+  #define errno WSAGetLastError()
+
+  #include <ws2tcpip.h>
   #include <winsock.h>
   #include <windows.h>
-  #define delay(ms) Sleep(ms)
-  #pragma comment(lib, "ws2_32.lib") //Winsock Library
 #else
-  #warning "This is currently only for Windows"
+  #define delay_ms(ms) usleep(1000*(ms))
+  #define FAIL_SOCKET(s) \
+      close(s); \
+      return 1;
+  #define SOCKET int
+  #define INVALID_SOCKET (-1)
+
+  #include <stdlib.h>
+  #include <unistd.h>
   #include <sys/socket.h>
-  #include <sys/un.h>
+  #include <arpa/inet.h>
+  #include <errno.h>
 #endif
 
 #define PRINT(...) printf(__VA_ARGS__); fflush(stdout);
-#define FAIL_SOCKET(s) \
-    closesocket(s); \
-    WSACleanup(); \
-    return SOCKET_ERROR;
 #define STRLEN 100
 #define MIN(a, b) ((a)<(b)?(a):(b))
 
@@ -36,7 +47,7 @@ int pollSelect(SOCKET sock) {
   tv.tv_usec = 0;
 
   pthread_mutex_lock(&lock_sockAccept);
-  selectStatus = select(sock, &fds, 0, 0, &tv);
+  selectStatus = select(sock+1, &fds, 0, 0, &tv);
   pthread_mutex_unlock(&lock_sockAccept);
   return selectStatus;
 }
@@ -47,12 +58,12 @@ void *receiveRoutine(void *threadData) {
 
   while (1) {
     recvLen = pollSelect(sockAccept);
-    if (recvLen == SOCKET_ERROR) {
+    if (recvLen < 0) {
       break;
     } else if (recvLen > 0) {
       pthread_mutex_lock(&lock_sockAccept);
       recvLen = recv(sockAccept, message, STRLEN, 0);
-      if (recvLen == SOCKET_ERROR) {
+      if (recvLen <= 0) {
         pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
@@ -61,14 +72,14 @@ void *receiveRoutine(void *threadData) {
         message[MIN(recvLen, STRLEN)] = '\0';
         PRINT("Other: %s", message);
         if (recvLen == STRLEN)
-          PRINT("%s\n", message);
+          PRINT("\n");
       }
     } else {
-      delay(100);
+      delay_ms(100);
     }
   }
 
-  PRINT("Other user has closed client. Exiting...")
+  PRINT("Other user has closed client. Exiting...\n")
   exit(-1);
   pthread_exit(NULL);
   return 0;
@@ -77,43 +88,46 @@ void *receiveRoutine(void *threadData) {
 void *sendRoutine(void *threadData) {
   char message[STRLEN+1];
   int status;
+
   while (1) {
     if (fgets(message, sizeof(message), stdin)) {
       pthread_mutex_lock(&lock_sockAccept);
       status = send(sockAccept, message, strlen(message), 0);
-      if (status == SOCKET_ERROR) {
+      if (status < 0) {
         pthread_mutex_unlock(&lock_sockAccept);
         break;
       }
       pthread_mutex_unlock(&lock_sockAccept);
     }
   }
+  PRINT("Other user has closed client. Exiting...\n")
   return 0;
 }
 
 int main(int argc, char *argv[]) {
-  WSADATA wsaData;
   SOCKET sockListen = INVALID_SOCKET;
   struct sockaddr_in server, client;
-  int c;
+  char c, option = 1;
   pthread_t receiveThread;
   pthread_mutex_init(&lock_sockAccept, NULL);
 
-  PRINT("Socket error: %d\n", SOCKET_ERROR);
-
-  PRINT("Initialising Winsock... ");
-  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-    PRINT("WSAStartup failed. Error Code : %d", WSAGetLastError());
-    WSACleanup();
-    return 1;
-  }
-  PRINT("initialised.\n");
+  #if WINDOWS
+    PRINT("Initialising Winsock... ");
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+      PRINT("WSAStartup failed. Error Code : %d", errno);
+      WSACleanup();
+      return 1;
+    }
+    PRINT("initialised.\n");
+  #endif
 
   //Create a socket
-  if((sockListen = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {
-    PRINT("Could not create socket : %d", WSAGetLastError());
+  if((sockListen = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    PRINT("Could not create socket : %d", errno);
     FAIL_SOCKET(sockListen);
   }
+  setsockopt(sockListen, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
   PRINT("Socket created.\n");
 
   //Prepare the sockaddr_in structure
@@ -122,8 +136,8 @@ int main(int argc, char *argv[]) {
   server.sin_port        = htons(8888);
 
   //Bind
-  if (bind(sockListen, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR) {
-    PRINT("Bind failed with error code : %d", WSAGetLastError());
+  if (bind(sockListen, (struct sockaddr*)&server, sizeof(server)) < 0) {
+    PRINT("Bind failed with error code : %d", errno);
     FAIL_SOCKET(sockListen);
   }
   PRINT("Bind done\n");
@@ -134,22 +148,26 @@ int main(int argc, char *argv[]) {
   //Accept incoming connection
   PRINT("Waiting for incoming connections... ");
   c = sizeof(struct sockaddr_in);
-  sockAccept = accept(sockListen, (struct sockaddr*)&client, &c);
-  if (sockAccept == INVALID_SOCKET) {
-    PRINT("\nAccept failed with error code : %d", WSAGetLastError());
+  sockAccept = accept(sockListen, (struct sockaddr*)&client, (socklen_t *)&c);
+  if (sockAccept < 0) {
+    PRINT("\nAccept failed with error code : %d", errno);
     FAIL_SOCKET(sockListen);
   }
-  PRINT("Accepted\n");
+  PRINT("accepted\n");
 
   pthread_create(&receiveThread, NULL, receiveRoutine, NULL);
   sendRoutine(NULL);
 
-  closesocket(sockAccept);
-  closesocket(sockListen);
-  WSACleanup();
+  #if WINDOWS
+    closesocket(sockAccept);
+    closesocket(sockListen);
+    WSACleanup();
+  #else
+    close(sockAccept);
+    close(sockListen);
+  #endif
 
   pthread_mutex_destroy(&lock_sockAccept);
   pthread_exit(NULL);
-
   return 0;
 }
