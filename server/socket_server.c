@@ -5,8 +5,7 @@
 
 #if defined(WIN32) || defined(__WIN32)
   #define WINDOWS 1
-  #include <winsock.h>
-  #include <windows.h>
+  #define delay_ms(ms) Sleep(ms)
   #define socket SOCKET
   #define FAIL_SOCKET(s) \
       closesocket(s); \
@@ -14,12 +13,17 @@
       return 1;
   #define errno WSAGetLastError()
   #pragma comment(lib, "ws2_32.lib") //Winsock Library
+
+  #include <winsock.h>
+  #include <windows.h>
 #else
+  #define delay_ms(ms) usleep(1000*(ms))
   #define FAIL_SOCKET(s) \
       close(s); \
       return 1;
   #define SOCKET int
   #define INVALID_SOCKET (-1)
+
   #include <unistd.h>
   #include <sys/socket.h>
   #include <arpa/inet.h>
@@ -44,7 +48,7 @@ int pollSelect(SOCKET sock) {
   tv.tv_usec = 0;
 
   pthread_mutex_lock(&lock_sockAccept);
-  selectStatus = select(sock, &fds, 0, 0, &tv);
+  selectStatus = select(sock+1, &fds, 0, 0, &tv);
   pthread_mutex_unlock(&lock_sockAccept);
   return selectStatus;
 }
@@ -63,7 +67,7 @@ void *receiveRoutine(void *threadData) {
       pthread_mutex_lock(&lock_sockAccept);
       PRINT("Recv: got lock, retrieving data...\n");
       recvLen = recv(sockAccept, message, STRLEN, 0);
-      if (recvLen < 0) {
+      if (recvLen <= 0) {
         PRINT("Recv: Error retrieving data.\n");
         pthread_mutex_unlock(&lock_sockAccept);
         break;
@@ -77,11 +81,7 @@ void *receiveRoutine(void *threadData) {
           PRINT("\n");
       }
     } else {
-      #if WINDOWS
-        Sleep(100);
-      #else
-        usleep(100*1000);
-      #endif
+      delay_ms(100);
     }
   }
 
